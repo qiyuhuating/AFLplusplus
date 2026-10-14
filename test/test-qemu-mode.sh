@@ -20,6 +20,25 @@ else
 fi
 
 test -e ../afl-qemu-trace && {
+  test -f ../libqasan.so && {
+    ${CPU_TARGET_CC} -o test-qasan-pvalloc test-qasan-pvalloc.c >>errors 2>&1 && {
+      AFL_USE_QASAN=1 ../afl-qemu-trace ./test-qasan-pvalloc >>errors 2>&1
+      if test "$?" -eq 0; then
+        $ECHO "$GREEN[+] QASan pvalloc page rounding and overflow tests passed"
+      else
+        $ECHO "$RED[!] QASan pvalloc page rounding or overflow test failed"
+        cat errors
+        CODE=1
+      fi
+    } || {
+      $ECHO "$YELLOW[-] cannot compile QASan pvalloc regression test"
+      INCOMPLETE=1
+    }
+    rm -f test-qasan-pvalloc errors
+  } || {
+    $ECHO "$YELLOW[-] cannot run QASan pvalloc test: libqasan.so not present"
+    INCOMPLETE=1
+  }
   ${CPU_TARGET_CC} -pie -fPIE -o test-instr ../test-instr.c
   ${CPU_TARGET_CC} -o test-compcov test-compcov.c
   ${CPU_TARGET_CC} -pie -fPIE -o test-instr-exit-at-end -DEXIT_AT_END ../test-instr.c
