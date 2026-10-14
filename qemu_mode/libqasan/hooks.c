@@ -27,6 +27,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "map_macro.h"
 #include <unistd.h>
 #include <sys/syscall.h>
+#include <errno.h>
 
 /* Newer glibc <string.h> exposes these as type-generic _Generic macros for
    const-correctness, which collides with our function definitions below. */
@@ -185,9 +186,22 @@ void *pvalloc(size_t size) {
   void *rtv = __builtin_return_address(0);
 
   QASAN_DEBUG("%14p: pvalloc(%zu)\n", rtv, size);
-  size_t page_size = sysconf(_SC_PAGESIZE);
-  size = (size & (page_size - 1)) + page_size;
-  void *r = __libqasan_memalign(page_size, size);
+  long page_size_long = sysconf(_SC_PAGESIZE);
+  if (page_size_long <= 0) {
+    errno = ENOMEM;
+    return NULL;
+  }
+
+  size_t page_size = (size_t)page_size_long;
+  size_t remainder = size % page_size;
+  size_t padding = remainder ? page_size - remainder : (size ? 0 : page_size);
+  if (size > SIZE_MAX - padding) {
+    errno = ENOMEM;
+    return NULL;
+  }
+
+  void *r = __libqasan_memalign(page_size, size + padding);
+  if (!r) errno = ENOMEM;
   QASAN_DEBUG("\t\t = %p\n", r);
 
   return r;
