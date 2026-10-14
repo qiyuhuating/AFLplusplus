@@ -105,9 +105,9 @@ my_mutator_t *afl_custom_init(afl_state_t *afl, unsigned int seed) {
 
   u8 *tmp = NULL;
   if ((tmp = getenv("AFL_CUSTOM_INFO_PROGRAM_ARGV")) && *tmp) {
-    char *placeholder = (char *) get_afl_env("AFL_INPUT_PLACEHOLDER");
-    if (!placeholder || !*placeholder) 
-      placeholder = (char *)"@@";
+
+    char *placeholder = (char *)get_afl_env("AFL_INPUT_PLACEHOLDER");
+    if (!placeholder || !*placeholder) placeholder = (char *)"@@";
 
     int argc = 0, index = 2;
     for (u32 i = 0; i < strlen(tmp); ++i)
@@ -331,7 +331,12 @@ u32 afl_custom_fuzz_count(my_mutator_t *data, const u8 *buf, size_t buf_size) {
     for (i = 0; i < (u32)items; ++i) {
 
       // symqemu output files start with a digit
-      if (!isdigit(nl[i]->d_name[0])) continue;
+      if (!isdigit(nl[i]->d_name[0])) {
+
+        free(nl[i]);
+        continue;
+
+      }
 
       struct stat st;
       snprintf(source_name, sizeof(source_name), "%s/%s", data->out_dir,
@@ -363,9 +368,11 @@ size_t afl_custom_fuzz(my_mutator_t *data, u8 *buf, size_t buf_size,
                        size_t max_size) {
 
   struct dirent **nl;
-  s32             done = 0, i, items = scandir(data->out_dir, &nl, NULL, NULL);
+  s32             i, items = scandir(data->out_dir, &nl, NULL, NULL);
+  size_t          size = 0;
   char            source_name[4096];
 
+  *out_buf = NULL;
   if (items > 0) {
 
     for (i = 0; i < (u32)items; ++i) {
@@ -381,35 +388,35 @@ size_t afl_custom_fuzz(my_mutator_t *data, u8 *buf, size_t buf_size,
       if (stat(source_name, &st) == 0 && S_ISREG(st.st_mode) && st.st_size) {
 
         int fd = open(source_name, O_RDONLY);
-        if (fd < 0) { goto got_an_issue; }
+        if (fd < 0) { goto release_scan; }
 
         ssize_t r = read(fd, data->mutator_buf, MAX_FILE);
         close(fd);
 
         DBG("fn=%s, fd=%d, size=%ld\n", source_name, fd, r);
 
-        if (r < 1) { goto got_an_issue; }
+        if (r < 1) { goto release_scan; }
 
-        done = 1;
         --found_items;
         unlink(source_name);
 
         *out_buf = data->mutator_buf;
-        return (u32)r;
+        size = (size_t)r;
+        goto release_scan;
 
       }
 
-      free(nl[i]);
-
     }
+
+  release_scan:
+    for (i = 0; i < (u32)items; ++i)
+      free(nl[i]);
 
     free(nl);
 
   }
 
-got_an_issue:
-  *out_buf = NULL;
-  return 0;
+  return size;
 
 }
 
