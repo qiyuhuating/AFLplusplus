@@ -276,45 +276,40 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
                        u8 **out_buf, uint8_t *add_buf, size_t add_buf_size,
                        size_t max_size) {
 
-  struct dirent **nl;
-  int32_t         i, done = 0, items = scandir(data->out_dir, &nl, NULL, NULL);
-  ssize_t         size = 0;
+  DIR *dir = opendir(data->out_dir);
+  if (!dir) return 0;
 
-  if (items <= 0) return 0;
+  struct dirent *entry;
+  int32_t        done = 0;
+  ssize_t        size = 0;
 
-  for (i = 0; i < (s32)items; ++i) {
+  while (!done && (entry = readdir(dir))) {
 
-    if (!done) {
+    struct stat st;
+    u8         *fn = alloc_printf("%s/%s", data->out_dir, entry->d_name);
 
-      struct stat st;
-      u8         *fn = alloc_printf("%s/%s", data->out_dir, nl[i]->d_name);
+    if (stat(fn, &st) == 0 && S_ISREG(st.st_mode) && st.st_size) {
 
-      if (stat(fn, &st) == 0 && S_ISREG(st.st_mode) && st.st_size) {
+      int fd = open(fn, O_RDONLY);
 
-        int fd = open(fn, O_RDONLY);
+      if (fd >= 0) {
 
-        if (fd >= 0) {
+        size = read(fd, data->mutator_buf, max_size);
+        *out_buf = data->mutator_buf;
 
-          size = read(fd, data->mutator_buf, max_size);
-          *out_buf = data->mutator_buf;
-
-          close(fd);
-          done = 1;
-
-        }
+        close(fd);
+        done = 1;
 
       }
 
-      unlink(fn);
-      ck_free(fn);
-
     }
 
-    free(nl[i]);
+    unlink(fn);
+    ck_free(fn);
 
   }
 
-  free(nl);
+  closedir(dir);
   DBG("FUZZ size=%lu\n", size);
   return (uint32_t)size;
 
